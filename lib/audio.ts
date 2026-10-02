@@ -1,4 +1,4 @@
-export type SoundName='deal'|'play'|'draw'|'ball'|'select'|'invalid'|'turn'|'round'|'win'|'lose'|'button';
+export type SoundName='deal'|'play'|'draw'|'ball'|'select'|'invalid'|'turn'|'round'|'win'|'lose'|'button'|'claim'|'finale';
 export type SoundSettings={enabled:boolean;volume:number};
 export const DEFAULT_SOUND:SoundSettings={enabled:true,volume:35};
 export function sanitizeSound(value:unknown):SoundSettings {
@@ -38,6 +38,21 @@ export class TableAudio {
     }
     if(name==='button'||name==='select'){this.tone(name==='select'?460:330,t,.022,.025*level,'triangle');return;}
     if(name==='invalid'){this.tone(180,t,.12,.035*level,'sine');return;}
+    if(name==='claim'||name==='finale'){
+      const notes=name==='finale'?[392,523.25,659.25,783.99,1046.5,1318.51]:[523.25,659.25,783.99,1046.5];
+      const step=name==='finale'?.17:.12;
+      notes.forEach((frequency,i)=>{
+        const at=t+i*step;
+        this.tone(frequency,at,name==='finale'?.82:.58,.07*level,'triangle');
+        this.tone(frequency*2.01,at+.008,.33,.017*level,'sine');
+        this.sparkle(at,.025*level);
+      });
+      if(name==='finale'){
+        [261.63,329.63,392,523.25].forEach(frequency=>this.tone(frequency,t+notes.length*step,1.45,.033*level,'sine'));
+        this.sparkle(t+notes.length*step,.065*level);
+      }
+      return;
+    }
     const sequence=name==='win'?[261.63,329.63,392,523.25,659.25]:name==='round'?[329.63,392,523.25]:name==='lose'?[293.66,261.63]:[523.25,659.25];
     sequence.forEach((f,i)=>{
       const at=t+i*(name==='win'?.13:.12);const duration=name==='win'?.8:.45;
@@ -55,6 +70,14 @@ export class TableAudio {
     const ctx=this.context!;const oscillator=ctx.createOscillator();oscillator.type=type;oscillator.frequency.value=frequency;const gain=ctx.createGain();
     gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(level,t+.006);gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
     oscillator.connect(gain);gain.connect(this.master!);oscillator.start(t);oscillator.stop(t+duration+.02);oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
+  }
+  private sparkle(t:number,level:number){
+    if(!this.context||!this.master||!this.noise)return;
+    const source=this.context.createBufferSource();source.buffer=this.noise;
+    const filter=this.context.createBiquadFilter();filter.type='highpass';filter.frequency.value=4800;
+    const gain=this.context.createGain();gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(level,t+.014);gain.gain.exponentialRampToValueAtTime(.0001,t+.2);
+    source.connect(filter);filter.connect(gain);gain.connect(this.master);source.start(t);source.stop(t+.21);
+    source.onended=()=>{source.disconnect();filter.disconnect();gain.disconnect();};
   }
   close(){this.unlocked=false;if(this.context)void this.context.close().catch(()=>{});this.context=null;this.master=null;}
 }

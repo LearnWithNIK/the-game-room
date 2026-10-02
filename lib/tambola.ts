@@ -2,7 +2,7 @@ export type Prize='early'|'top'|'middle'|'bottom'|'house';
 export type Player={id:string;name:string;seen:number};
 export type Ticket=(number|null)[][];
 export type Claim={prize:Prize;seat:number;draw:number};
-export type Room={code:string;host:string;players:Player[];seats:(string|null)[];tickets:Ticket[];marks:number[][];drawOrder:number[];drawn:number[];nextDraw:number;phase:'lobby'|'play'|'finished';claims:Claim[]};
+export type Room={code:string;host:string;players:Player[];seats:(string|null)[];tickets:Ticket[];marks:number[][];drawOrder:number[];drawn:number[];nextDraw:number;phase:'lobby'|'play'|'finished';claims:Claim[];celebration?:{draw:number;until:number}};
 export const prizes:Prize[]=['early','top','middle','bottom','house'];
 const random=(n:number)=>{const a=new Uint32Array(1);crypto.getRandomValues(a);return a[0]%n};
 export function shuffle<T>(items:T[]):T[]{const a=[...items];for(let i=a.length-1;i>0;i--){const j=random(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
@@ -28,19 +28,23 @@ export function qualified(room:Room,seat:number,prize:Prize):boolean {
   if(prize==='house')return numbers(t).every(n=>marked.has(n));
   return all(t[{top:0,middle:1,bottom:2}[prize]]);
 }
-export function claim(room:Room,seat:number,prize:Prize){
+export function claim(room:Room,seat:number,prize:Prize,now=Date.now()){
   if(!prizes.includes(prize)||!room.tickets[seat])throw new Error('Choose a valid prize.');
   if(!qualified(room,seat,prize))throw new Error('Your marked ticket does not qualify yet.');
   if(room.claims.some(c=>c.seat===seat&&c.prize===prize))throw new Error('You already claimed this prize.');
   const first=room.claims.find(c=>c.prize===prize);
   if(first&&first.draw!==room.drawn.length)throw new Error('This prize was won on an earlier number.');
-  room.claims.push({seat,prize,draw:room.drawn.length});if(prize==='house')room.phase='finished';
+  const draw=room.drawn.length;
+  room.claims.push({seat,prize,draw});
+  room.celebration={draw,until:now+5500};
+  room.nextDraw=Math.max(room.nextDraw,room.celebration.until+1500);
+  if(prize==='house')room.phase='finished';
 }
 export function tick(room:Room,now:number):boolean {
-  if(room.phase!=='play'||now<room.nextDraw)return false;
+  if(room.phase!=='play'||now<room.nextDraw||now<(room.celebration?.until??0))return false;
   const number=room.drawOrder[room.drawn.length];if(number===undefined){room.phase='finished';return true;}
   room.drawn.push(number);room.nextDraw=now+8000;
-  for(let seat=0;seat<4;seat++)if(room.seats[seat]===null){if(numbers(room.tickets[seat]).includes(number))room.marks[seat].push(number);for(const prize of prizes){if(qualified(room,seat,prize)&&!room.claims.some(c=>c.seat===seat&&c.prize===prize)){try{claim(room,seat,prize)}catch{}}}}
+  for(let seat=0;seat<4;seat++)if(room.seats[seat]===null){if(numbers(room.tickets[seat]).includes(number))room.marks[seat].push(number);for(const prize of prizes){if(qualified(room,seat,prize)&&!room.claims.some(c=>c.seat===seat&&c.prize===prize)){try{claim(room,seat,prize,now)}catch{}}}}
   if(room.drawn.length===90)room.phase='finished';return true;
 }
 export function action(room:Room,id:string,kind:string,value:unknown,now:number){
@@ -52,11 +56,11 @@ export function action(room:Room,id:string,kind:string,value:unknown,now:number)
   }
   if(kind==='start'){
     if(!host||seat<0||room.phase!=='lobby')throw new Error('The host must take a seat before starting.');
-    room.tickets=Array.from({length:4},ticket);room.marks=[[],[],[],[]];room.drawOrder=shuffle(Array.from({length:90},(_,i)=>i+1));room.drawn=[];room.nextDraw=now+8000;room.claims=[];room.phase='play';return;
+    room.tickets=Array.from({length:4},ticket);room.marks=[[],[],[],[]];room.drawOrder=shuffle(Array.from({length:90},(_,i)=>i+1));room.drawn=[];room.nextDraw=now+8000;room.claims=[];room.celebration=undefined;room.phase='play';return;
   }
   if(kind==='again'){
     if(!host||room.phase!=='finished')throw new Error('The host can open a new game after Full House.');
-    room.phase='lobby';room.tickets=[];room.marks=[[],[],[],[]];room.drawn=[];room.drawOrder=[];room.claims=[];room.nextDraw=0;return;
+    room.phase='lobby';room.tickets=[];room.marks=[[],[],[],[]];room.drawn=[];room.drawOrder=[];room.claims=[];room.celebration=undefined;room.nextDraw=0;return;
   }
   if(seat<0)throw new Error('Take a seat before playing.');
   if(kind==='mark'){
@@ -65,10 +69,10 @@ export function action(room:Room,id:string,kind:string,value:unknown,now:number)
     if(!room.drawn.includes(n))throw new Error('The referee has not called that number yet.');
     if(room.marks[seat].includes(n))room.marks[seat]=room.marks[seat].filter(x=>x!==n);else room.marks[seat].push(n);return;
   }
-  if(kind==='claim'){if(room.phase!=='play'&&room.phase!=='finished')throw new Error('The game has not started.');claim(room,seat,value as Prize);return;}
+  if(kind==='claim'){if(room.phase!=='play'&&room.phase!=='finished')throw new Error('The game has not started.');claim(room,seat,value as Prize,now);return;}
   throw new Error('Unknown move.');
 }
-export function view(room:Room,id:string,now:number){const seat=room.seats.indexOf(id);return {code:room.code,phase:room.phase,host:room.host===id,me:seat,seatNames:room.seats.map((player,i)=>room.players.find(p=>p.id===player)?.name??`Bot ${i+1}`),occupied:room.seats.map(Boolean),waiting:room.players.filter(p=>!room.seats.includes(p.id)).map(p=>p.name),ticket:seat<0?null:room.tickets[seat]??null,marks:seat<0?[]:room.marks[seat],drawn:room.drawn,last:room.drawn.at(-1)??null,nextDraw:room.nextDraw,claims:room.claims,progress:room.seats.map((_,i)=>({marked:room.marks[i].length,lines:['top','middle','bottom'].filter(p=>qualified(room,i,p as Prize)).length})),serverTime:now,revision:0};}
+export function view(room:Room,id:string,now:number){const seat=room.seats.indexOf(id);return {code:room.code,phase:room.phase,host:room.host===id,me:seat,seatNames:room.seats.map((player,i)=>room.players.find(p=>p.id===player)?.name??`Bot ${i+1}`),occupied:room.seats.map(Boolean),waiting:room.players.filter(p=>!room.seats.includes(p.id)).map(p=>p.name),ticket:seat<0?null:room.tickets[seat]??null,marks:seat<0?[]:room.marks[seat],drawn:room.drawn,last:room.drawn.at(-1)??null,nextDraw:room.nextDraw,claims:room.claims,celebration:room.celebration&&now<room.celebration.until?{until:room.celebration.until,claims:room.claims.filter(c=>c.draw===room.celebration!.draw)}:null,progress:room.seats.map((_,i)=>({marked:room.marks[i].length,lines:['top','middle','bottom'].filter(p=>qualified(room,i,p as Prize)).length})),serverTime:now,revision:0};}
 export type View=ReturnType<typeof view>;
 
 

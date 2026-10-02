@@ -8,4 +8,11 @@ const own=r.tickets[0].flat().find(x=>x!==null&&r.drawn.includes(x));if(own){act
 // Shared claims on the same call, but not on a later call.
 r.tickets[0]=[[1,2,3,4,5,null,null,null,null],[6,7,8,9,10,null,null,null,null],[11,12,13,14,15,null,null,null,null]];
 r.tickets[1]=r.tickets[0];r.drawn=[1,2,3,4,5];r.marks[0]=[1,2,3,4,5];r.marks[1]=[1,2,3,4,5];assert.equal(qualified(r,0,'early'),true);claim(r,0,'early');claim(r,1,'early');assert.equal(r.claims.length,2);r.drawn.push(6);assert.throws(()=>claim(r,2,'early'));
-console.log('PASS: 500 valid tickets, private ticket views, bot fill, 8s draw, mark/unmark validation, shared same-call claim.');
+const paused=createRoom('PAUSED',host);action(paused,'host','seat',0,0);action(paused,'host','start',null,0);
+paused.tickets[0]=r.tickets[0];paused.drawn=[1,2,3,4,5];paused.marks[0]=[1,2,3,4,5];paused.nextDraw=10000;
+claim(paused,0,'early',9000);assert.equal(paused.celebration.until,14500);assert.equal(paused.nextDraw,16000);
+assert.deepEqual(view(paused,'host',9000).celebration.claims,[{seat:0,prize:'early',draw:5}]);
+assert.equal(tick(paused,10000),false);assert.equal(tick(paused,15999),false);assert.equal(tick(paused,16000),true);
+paused.marks[0]=paused.tickets[0].flat().filter(x=>x!==null);claim(paused,0,'house',17000);
+assert.equal(paused.phase,'finished');assert.ok(view(paused,'host',17000).claims.some(c=>c.prize==='house'));
+console.log('PASS: 500 valid tickets, private views, bot fill, marking, shared claims, prize pause and Full House result.');
