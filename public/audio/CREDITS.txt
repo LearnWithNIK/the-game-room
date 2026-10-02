@@ -1,0 +1,3 @@
+Card-handling recordings: Kenney Casino Audio, CC0.
+Source: https://kenney.nl/assets/casino-audio
+WAV files converted from original OGG, trimmed and level-normalised for web playback.
